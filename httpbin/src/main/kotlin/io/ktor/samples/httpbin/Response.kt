@@ -1,8 +1,12 @@
 package io.ktor.samples.httpbin
 
 import io.ktor.http.*
+import io.ktor.http.cio.*
+import io.ktor.http.content.*
 import io.ktor.server.plugins.*
 import io.ktor.server.request.*
+import io.ktor.util.*
+import io.ktor.utils.io.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.*
@@ -15,6 +19,7 @@ import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
 import java.nio.ByteBuffer
 import java.nio.charset.MalformedInputException
+import kotlin.coroutines.coroutineContext
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
 
@@ -90,17 +95,58 @@ fun ApplicationRequest.asCommonResponse(): CommonResponse {
     )
 }
 
-@OptIn(ExperimentalSerializationApi::class, ExperimentalEncodingApi::class)
+@OptIn(ExperimentalSerializationApi::class, ExperimentalEncodingApi::class, InternalAPI::class)
 suspend fun ApplicationRequest.asBodyResponse(): BodyResponse {
     val data = call.receive<ByteArray>()
     val charset = contentType().charset() ?: Charsets.UTF_8
 
-    val text = withContext(Dispatchers.IO) {
-        try {
-            charset.newDecoder().decode(ByteBuffer.wrap(data)).toString()
-        } catch (cause: MalformedInputException) {
-            "data:application/octet-stream;base64,${Base64.encode(data)}"
+    val text = if (contentType().match("multipart/form-data") || contentType().match("application/x-www-form-urlencoded")) {
+        ""
+    } else {
+        withContext(Dispatchers.IO) {
+            try {
+                charset.newDecoder().decode(ByteBuffer.wrap(data)).toString()
+            } catch (cause: MalformedInputException) {
+                "data:application/octet-stream;base64,${Base64.encode(data)}"
+            }
         }
+    }
+
+    val form = when {
+        contentType().match("multipart/form-data") -> {
+            val values = mutableMapOf<String, MutableList<String>>()
+            val multipart = CIOMultipartDataBase(
+                coroutineContext,
+                ByteReadChannel(data),
+                contentType().toString(),
+                contentLength()
+            )
+
+            do {
+                val part = multipart.readPart()
+
+                when (part) {
+                    is PartData.FormItem -> {
+                        val name = part.name ?: continue
+                        val list = values.getOrElse(name) { mutableListOf() }
+                        list.add(part.value)
+                        values[name] = list
+                    }
+
+                    else -> {
+
+                    }
+                }
+
+            } while (part != null)
+            values
+        }
+
+        contentType().match("application/x-www-form-urlencoded") -> {
+            String(data).parseUrlEncodedParameters(charset).toMap()
+        }
+
+        else -> mapOf()
     }
 
     return BodyResponse(
@@ -110,7 +156,7 @@ suspend fun ApplicationRequest.asBodyResponse(): BodyResponse {
         url = fullUrl(),
         data = text,
         files = emptyMap(),
-        form = emptyMap(),
+        form = form,
         json = JsonPrimitive(null)
     )
 }
