@@ -16,6 +16,8 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.encodeToString
+import kotlinx.serialization.modules.SerializersModule
+import kotlinx.serialization.modules.contextual
 
 @OptIn(ExperimentalSerializationApi::class)
 val CustomJsonEncoder = Json {
@@ -24,6 +26,7 @@ val CustomJsonEncoder = Json {
     explicitNulls = false
 }
 
+@OptIn(ExperimentalSerializationApi::class)
 fun main() {
     embeddedServer(Netty, host = "localhost", port = 8080) {
         install(NotarizedApplication()) {
@@ -40,7 +43,13 @@ fun main() {
             }
         }
         install(ContentNegotiation) {
-            json()
+            json(
+                Json {
+                    serializersModule = SerializersModule {
+                        contextual(DynamicLookupSerializer)
+                    }
+                }
+            )
         }
         routing {
             swaggerUI()
