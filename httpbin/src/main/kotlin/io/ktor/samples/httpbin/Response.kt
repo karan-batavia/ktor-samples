@@ -3,6 +3,8 @@ package io.ktor.samples.httpbin
 import io.ktor.http.*
 import io.ktor.server.plugins.*
 import io.ktor.server.request.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.*
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
@@ -11,6 +13,10 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.*
+import java.nio.ByteBuffer
+import java.nio.charset.MalformedInputException
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 @Serializable
 data class CommonResponse(
@@ -84,14 +90,25 @@ fun ApplicationRequest.asCommonResponse(): CommonResponse {
     )
 }
 
-@OptIn(ExperimentalSerializationApi::class)
-fun ApplicationRequest.asBodyResponse(): BodyResponse {
+@OptIn(ExperimentalSerializationApi::class, ExperimentalEncodingApi::class)
+suspend fun ApplicationRequest.asBodyResponse(): BodyResponse {
+    val data = call.receive<ByteArray>()
+    val charset = contentType().charset() ?: Charsets.UTF_8
+
+    val text = withContext(Dispatchers.IO) {
+        try {
+            charset.newDecoder().decode(ByteBuffer.wrap(data)).toString()
+        } catch (cause: MalformedInputException) {
+            "data:application/octet-stream;base64,${Base64.encode(data)}"
+        }
+    }
+
     return BodyResponse(
         args = call.request.queryParameters.asMap(),
         headers = call.request.headers.asMap(),
         origin = origin.remoteAddress,
         url = fullUrl(),
-        data ="",
+        data = text,
         files = emptyMap(),
         form = emptyMap(),
         json = JsonPrimitive(null)
