@@ -150,6 +150,7 @@ suspend fun ApplicationRequest.asBodyResponse(): BodyResponse {
                 }
 
             } while (part != null)
+
             values
         }
 
@@ -160,6 +161,20 @@ suspend fun ApplicationRequest.asBodyResponse(): BodyResponse {
         else -> mapOf()
     }
 
+    val json = try {
+        val result = Json.parseToJsonElement(String(data))
+
+        when {
+            result is JsonPrimitive && !result.isString && result.content.toIntOrNull() != null -> result.content.toInt()
+            result is JsonPrimitive && !result.isString -> JsonPrimitive(null)
+            result is JsonPrimitive && result.isString -> result.content
+
+            else -> result
+        }
+    } catch (cause: SerializationException) {
+        JsonPrimitive(null)
+    }
+
     return BodyResponse(
         args = call.request.queryParameters.asMap(),
         headers = call.request.headers.asMap(),
@@ -168,7 +183,7 @@ suspend fun ApplicationRequest.asBodyResponse(): BodyResponse {
         data = text,
         files = files,
         form = form,
-        json = JsonPrimitive(null)
+        json = json
     )
 }
 

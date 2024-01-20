@@ -22,13 +22,6 @@ kotlin {
     jvmToolchain(17)
 }
 
-//java {
-//    toolchain {
-//        languageVersion.set(JavaLanguageVersion.of(17))
-//        targetCompatibility = JavaVersion.VERSION_17
-//    }
-//}
-
 application {
     mainClass.set("io.ktor.samples.httpbin.ApplicationKt")
 }
